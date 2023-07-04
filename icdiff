@@ -24,6 +24,8 @@ import filecmp
 import unicodedata
 import codecs
 import fnmatch
+import diff_match_patch as dmp_module
+
 
 __version__ = "2.0.6"
 
@@ -381,7 +383,39 @@ class ConsoleDiff(object):
             fromlines = self._strip_trailing_cr(fromlines)
             tolines = self._strip_trailing_cr(tolines)
 
+        def diff_main_wrapper(lines1, lines2):
+            dmp = dmp_module.diff_match_patch()
+            diffs = dmp.diff_linesToChars('\n'.join(lines1), '\n'.join(lines2))
+            line_text1, line_text2, line_array = diffs
+            diffs = dmp.diff_main(line_text1, line_text2, False)
+
+            dmp.diff_charsToLines(diffs, line_array)
+
+            from_line = to_line = 1
+            for operation, text in diffs:
+                text_lines = text.splitlines()
+
+                if operation == 0:  # Equality
+                    for line in text_lines:
+                        yield (from_line, '\x00-' + line + '\x01'), (to_line, '\x00+' + line + '\x01'), False
+                        from_line += 1
+                        to_line += 1
+                elif operation == -1:  # Deletion
+                    for line in text_lines:
+                        yield (from_line, '\x00-' + line + '\x01'), ('', ''), True
+                        from_line += 1
+                elif operation == 1:  # Insertion
+                    for line in text_lines:
+                        yield ('', ''), (to_line, '\x00+' + line + '\x01'), True
+                        to_line += 1
+
         # create diffs iterator which generates side by side from/to data
+        print("CURRENT")
+        diffs = diff_main_wrapper(fromlines, tolines)
+        for d in diffs:
+            print(d)
+        
+        # print("OLD")
         diffs = difflib._mdiff(
             fromlines,
             tolines,
@@ -389,6 +423,8 @@ class ConsoleDiff(object):
             linejunk=self._linejunk,
             charjunk=self._charjunk,
         )
+        for d in diffs:
+            print(d)
 
         # set up iterator to wrap lines that exceed desired width
         if self._wrapcolumn:
